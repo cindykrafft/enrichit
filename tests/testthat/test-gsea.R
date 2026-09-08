@@ -400,3 +400,31 @@ test_that("gseaScores() rejects non-finite statistics instead of crashing", {
     # used to be "missing value where TRUE/FALSE needed"
     expect_error(gseaScores(gl_inf, c("a", "c", "e")), "finite")
 })
+
+test_that("sample/permute/adaptive p-values use the same-sign permutation null (GSEA convention)", {
+  # 24 genes, sets of 3: the null of every C(24, 3) = 2024 gene sets is enumerated exactly
+  set.seed(124)
+  stats <- sort(rnorm(24), decreasing = TRUE)
+  names(stats) <- sprintf("g%02d", 1:24)
+  es_of <- function(idx) {
+    hits <- seq_along(stats) %in% idx
+    rs <- cumsum(ifelse(hits, abs(stats), 0)) / sum(abs(stats[hits])) - cumsum(!hits) / (length(stats) - length(idx))
+    if (abs(max(rs)) >= abs(min(rs))) max(rs) else min(rs)
+  }
+  null <- apply(combn(24, 3), 2, es_of)
+  p_exact <- function(es) if (es >= 0) mean(null[null >= 0] >= es) else mean(null[null < 0] <= es)
+  sets <- list(mid = names(stats)[c(8, 12, 16)], bottom = names(stats)[22:24], top = names(stats)[1:3])
+  exact <- vapply(sets, function(s) p_exact(es_of(match(s, names(stats)))), numeric(1))
+  for (m in c("sample", "permute")) {
+    res <- suppressWarnings(gsea(stats, sets, minGSSize = 1, maxGSSize = 23, method = m, nPerm = 20000, seed = 5, verbose = FALSE))
+    got <- setNames(res$pvalue, res$ID)[names(sets)]
+    # a same-sign null gives p ~ 0.88 for 'mid'; the unconditional null gave ~ 0.45
+    expect_equal(unname(got["mid"]), unname(exact["mid"]), tolerance = 0.05)
+    # sets at the very bottom (ES = -1 exactly) must count their own configuration
+    expect_gt(unname(got["bottom"]), 0.0005)
+    expect_equal(unname(got["top"]), unname(exact["top"]), tolerance = 0.5)
+  }
+  res <- suppressWarnings(gsea(stats, sets["mid"], minGSSize = 1, maxGSSize = 23, method = "sample", adaptive = TRUE,
+                               minPerm = 2000, maxPerm = 20000, seed = 7, verbose = FALSE))
+  expect_equal(res$pvalue, unname(exact["mid"]), tolerance = 0.05)
+})

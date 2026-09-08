@@ -1,3 +1,7 @@
+# enrichit 0.2.5.001
+
++ `gsea(method = "sample" | "permute")` and `adaptive = TRUE` now compute the nominal p-value against the permutation ES of the same sign as the observed ES (the GSEA convention used by `method = "multilevel"`, fgsea and DOSE); previously the denominator counted all permutations, so these p-values were about half of the multilevel ones. The observed ES of the "sample" path is now compared through the same routine that scores the permutations, so a gene set lying entirely at one end of the list (ES = ±1) is no longer reported at the permutation floor (2026-09-08, Tue)
+
 # enrichit 0.2.5
 
 - ORA results now carry an **`oddsRatio`** column (Fisher's exact 2x2 odds ratio, placed next to `FoldEnrichment`). `FoldEnrichment` is a ratio of proportions, whereas the odds ratio is the effect size that the hypergeometric/Fisher test is built on; note it is the plain cross-product odds ratio and differs slightly from `fisher.test()$estimate`, which reports the conditional MLE (2026-09-22, Tue)

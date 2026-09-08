@@ -324,19 +324,33 @@ Rcpp::DataFrame gsea(const Rcpp::NumericVector& stats,
         double sum_neg_es = 0.0;
         int count_pos = 0;
         int count_neg = 0;
+        int count_same_sign = 0;   // permutations whose ES has the sign of the observed ES
+        
+        // For the "sample" method the null ES come from calculate_es_sparse(); compare the
+        // observed ES computed by the same routine so that an ES of exactly +1/-1 (all members
+        // at one end of the list) is not missed through a different rounding path.
+        double obs_cmp = obs_es;
+        if (method != "permute") {
+            std::vector<int> hit_idx;
+            for (int g = 0; g < n_genes; ++g) if (gs_bools[i][g]) hit_idx.push_back(g);
+            obs_cmp = calculate_es_sparse(gene_stats, hit_idx, exponent);
+        }
         
         for (int p = 0; p < nPerm; ++p) {
             double pes = perm_es[i][p];
             if (obs_es > 0) {
-                if (pes >= obs_es) count_better++;
-                if (pes >= 0) { sum_pos_es += pes; count_pos++; }
+                if (pes >= obs_cmp) count_better++;
+                if (pes >= 0) { sum_pos_es += pes; count_pos++; count_same_sign++; }
             } else {
-                if (pes <= obs_es) count_better++;
+                if (pes <= obs_cmp) count_better++;
                 if (pes < 0) { sum_neg_es += pes; count_neg++; }
+                if (pes <= 0) count_same_sign++;
             }
         }
         
-        pvalues[i] = (double)(count_better + 1) / (double)(nPerm + 1);
+        // GSEA nominal p-value (Subramanian et al. 2005): the null distribution is the
+        // permutation ES of the same sign as the observed ES, as in fgsea and DOSE.
+        pvalues[i] = std::min(1.0, (double)(count_better + 1) / (double)(count_same_sign + 1));
         
         if (obs_es > 0) {
             double mean_pos = (count_pos > 0) ? (sum_pos_es / count_pos) : 1.0;
@@ -467,6 +481,14 @@ Rcpp::DataFrame gsea_adaptive(const Rcpp::NumericVector& stats,
         double sum_neg_es = 0.0;
         int count_pos = 0;
         int count_neg = 0;
+        int count_same_sign = 0;
+        
+        double obs_cmp = obs_es;
+        if (method != "permute") {
+            std::vector<int> hit_idx;
+            for (int g = 0; g < n_genes; ++g) if (gs_bools[i][g]) hit_idx.push_back(g);
+            obs_cmp = calculate_es_sparse(gene_stats, hit_idx, exponent);
+        }
         
         int batch_size = minPerm;
         bool converged = false;
@@ -503,18 +525,19 @@ Rcpp::DataFrame gsea_adaptive(const Rcpp::NumericVector& stats,
                 
                 // Update counts
                 if (obs_es > 0) {
-                    if (perm_es >= obs_es) count_better++;
-                    if (perm_es >= 0) { sum_pos_es += perm_es; count_pos++; }
+                    if (perm_es >= obs_cmp) count_better++;
+                    if (perm_es >= 0) { sum_pos_es += perm_es; count_pos++; count_same_sign++; }
                 } else {
-                    if (perm_es <= obs_es) count_better++;
+                    if (perm_es <= obs_cmp) count_better++;
                     if (perm_es < 0) { sum_neg_es += perm_es; count_neg++; }
+                    if (perm_es <= 0) count_same_sign++;
                 }
             }
             
             total_perms += batch_size;
             
-            // Calculate current p-value
-            double current_pval = (double)(count_better + 1) / (double)(total_perms + 1);
+            // Calculate current p-value (same-sign null, see gsea())
+            double current_pval = std::min(1.0, (double)(count_better + 1) / (double)(count_same_sign + 1));
             
             // Early stopping conditions
             if (total_perms >= minPerm) {
@@ -533,7 +556,7 @@ Rcpp::DataFrame gsea_adaptive(const Rcpp::NumericVector& stats,
         }
         
         // Final p-value and NES calculation
-        pvalues[i] = (double)(count_better + 1) / (double)(total_perms + 1);
+        pvalues[i] = std::min(1.0, (double)(count_better + 1) / (double)(count_same_sign + 1));
         actual_perms[i] = total_perms;
         
         if (obs_es > 0) {
